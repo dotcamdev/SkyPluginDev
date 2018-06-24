@@ -1,140 +1,67 @@
 /*=================================================
-* FileName: TimeManager.cpp
-*
-* Created by: DotCam
-* Project name: OceanProject
-* Unreal Engine version: 4.18.3
-* Created on: 208/06/16
-*
-* Last Edited on: 2018/06/16
-* Last Edited by: DotCam
-*
-* -------------------------------------------------
 * For parts referencing UE4 code, the following copyright applies:
 * Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 *
 * Feel free to use this software in any commercial/free game.
 * Selling this as a plugin/item, in whole or part, is not allowed.
-* See "OceanProject\License.md" for full licensing details.
+* See LICENSE for full licensing details.
 * =================================================*/
 
 #include "SkyManager.h"
+#include "UtilityFunctions.h"
 #include "TimePlugin.h"
-#include "Kismet/KismetMathLibrary.h"
+
 
 ASkyManager::ASkyManager(const class FObjectInitializer& PCIP) : Super(PCIP)
     {
 	PrimaryActorTick.bCanEverTick = true;
     }
 
+void ASkyManager::OnConstruction(const FTransform& Transform)
+{
+	UpdateSky();
+}
 
-/* --- Utility Functions --- */
+void ASkyManager::BeginPlay()
+{
+	Super::BeginPlay();
+}
 
-// Float versions
+void ASkyManager::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+	UpdateSky();
+}
 
-float ASkyManager::SinD(float input)
-    {
-	return FMath::Sin((PI / 180.0f) * input);
-    }
+void ASkyManager::CalculateSunAngle()
+{
+	if (bFreezeSky)
+	{
+		return;
+	}
+	FTimePlugin::Get().GetSingletonActor(this)->DayOfYear = FTimePlugin::Get().GetSingletonActor(this)->InternalTime.GetDayOfYear() - 1;
+	double lct = FTimePlugin::Get().GetSingletonActor(this)->InternalTime.GetTimeOfDay().GetTotalHours();
 
-float ASkyManager::ASinD(float input)
-    {
-	return (180.0f / PI) * FMath::Asin(input);
-    }
-
-float ASkyManager::CosD(float input)
-    {
-	return FMath::Cos((PI / 180.0f) * input);
-    }
-
-float ASkyManager::ACosD(float input)
-    {
-	return (180.0f / PI) * FMath::Acos(input);
-    }
-
-float ASkyManager::TanD(float input)
-    {
-	return FMath::Tan((PI / 180.0f) * input);
-    }
-
-float ASkyManager::ATanD(float input)
-    {
-	return (180.0f / PI) * FMath::Atan(input);
-    }
-
-float ASkyManager::ATan2D(float A, float B)
-    {
-	return (180.f / PI) * FMath::Atan2(A, B);
-    }
-
-
-// Double versions
-
-double ASkyManager::SinD(double input)
-    {
-	return sin((PI / 180.0) * input);
-    }
-
-double ASkyManager::ASinD(double input)
-    {
-	return (180.0 / PI) * asin(input);
-    }
-
-double ASkyManager::CosD(double input)
-    {
-	return cos((PI / 180.0) * input);
-    }
-
-double ASkyManager::ACosD(double input)
-    {
-	return (180.0 / PI) * acos(input);
-    }
-
-double ASkyManager::TanD(double input)
-    {
-	return tan((PI / 180.0) * input);
-    }
-
-double ASkyManager::ATanD(double input)
-    {
-	return (180.0 / PI) * atan(input);
-    }
-
-double ASkyManager::ATan2D(double A, double B)
-    {
-	return (180.0 / PI) * atan2(A, B);
-    }
-
-
-
-
-FRotator ASkyManager::CalculateSunAngle()
-    {
-	if (!FTimePlugin::Get().TimeManagerActor->bIsCalendarInitialized)
-	    {
-		return FRotator();
-	    }
-
-	FTimePlugin::Get().TimeManagerActor->DayOfYear = FTimePlugin::Get().TimeManagerActor->InternalTime.GetDayOfYear() - 1;
-	double lct = FTimePlugin::Get().TimeManagerActor->InternalTime.GetTimeOfDay().GetTotalHours();
-
-	double eotBase = (FTimePlugin::Get().TimeManagerActor->DayOfYear - 81) * (360.0 / 365.242);
+	double eotBase = (FTimePlugin::Get().GetSingletonActor(this)->DayOfYear - 81) * (360.0 / 365.242);
 	double eot = (9.87 * SinD(eotBase * 2)) - (7.53 * CosD(eotBase)) - (1.5 * SinD(eotBase));
 
-	double tcf = ((FTimePlugin::Get().TimeManagerActor->Longitude - LSTM) * 4) + eot;
+	// Local Standard Time Meridian (degrees) = 15 * Hour Offset from UTC
+	LSTM = 15 * (FTimePlugin::Get().GetSingletonActor(this)->OffsetUTC);
+
+	double tcf = ((FTimePlugin::Get().GetSingletonActor(this)->Longitude - LSTM) * 4) + eot;
 	double solTime = lct + (tcf / 60);
 
 	double hra = (solTime - 12) * 15;
-	double decl = 23.452294 * SinD((360.0 / 365.242) * (FTimePlugin::Get().TimeManagerActor->DayOfYear - 81));
+	double decl = 23.452294 * SinD((360.0 / 365.242) * (FTimePlugin::Get().GetSingletonActor(this)->DayOfYear - 81));
 
-	double lat = (double)FTimePlugin::Get().TimeManagerActor->Latitude;
+	double lat = (double)FTimePlugin::Get().GetSingletonActor(this)->Latitude;
 	double saa = ASinD((SinD(decl) * SinD(lat)) + (CosD(decl) * CosD(lat) * CosD(hra)));
 	double saz = ACosD(((SinD(decl) * CosD(lat)) - (CosD(decl) * SinD(lat) * CosD(hra))) / CosD(saa));
 
 	if (hra >= 0.0)
-	    {
+	{
 		saz = saz * -1;
-	    }
+	}
 
 	// TEMPORARY - For debug only
 	LocalClockTime = (float)lct;
@@ -146,31 +73,28 @@ FRotator ASkyManager::CalculateSunAngle()
 	SolarAltAngle = (float)saa;
 	SolarAzimuth = (float)saz;
 
-	return FRotator(SolarAltAngle - 180, SolarAzimuth, 0);
-    }
+	SunRotation = FRotator(SolarAltAngle - 180, SolarAzimuth, 0);
+}
 
-
-
-FRotator ASkyManager::CalculateMoonAngle()
-    {
-	if (!FTimePlugin::Get().TimeManagerActor->bIsCalendarInitialized)
-	    {
-		return FRotator();
-	    }
-
-	double lct = FTimePlugin::Get().TimeManagerActor->InternalTime.GetTimeOfDay().GetTotalHours();
-	double elapsed = FTimePlugin::Get().TimeManagerActor->InternalTime.GetJulianDay() - JD2000;
+void ASkyManager::CalculateMoonAngle()
+{
+	if (bFreezeSky)
+	{
+		return;
+	}
+	double lct = FTimePlugin::Get().GetSingletonActor(this)->InternalTime.GetTimeOfDay().GetTotalHours();
+	double elapsed = FTimePlugin::Get().GetSingletonActor(this)->InternalTime.GetJulianDay() - JD2000;
 	double utc;
 
-	if ((lct + FTimePlugin::Get().TimeManagerActor->SpanUTC.GetHours()) > 24.0)
-	    {
-		utc = (lct + FTimePlugin::Get().TimeManagerActor->SpanUTC.GetHours()) - 24.0;
+	if ((lct + FTimePlugin::Get().GetSingletonActor(this)->SpanUTC.GetHours()) > 24.0)
+	{
+		utc = (lct + FTimePlugin::Get().GetSingletonActor(this)->SpanUTC.GetHours()) - 24.0;
 		elapsed++;
-	    }
+	}
 	else
-	    {
-		utc = lct + FTimePlugin::Get().TimeManagerActor->SpanUTC.GetHours();
-	    }
+	{
+		utc = lct + FTimePlugin::Get().GetSingletonActor(this)->SpanUTC.GetHours();
+	}
 
 	elapsed += (utc / 24.0);
 
@@ -196,10 +120,10 @@ FRotator ASkyManager::CalculateMoonAngle()
 	double lunarRA = ATan2D((SinD(ecLong) * CosD(EcObliquity)) - (TanD(ecLat) * SinD(EcObliquity)), CosD(ecLong));
 
 	// Calculate Sidereal time (theta) and the Hour Angle (tau)
-	double lunarST = fmod((357.009 + 102.937) + (15 * (utc)) - FTimePlugin::Get().TimeManagerActor->Longitude, 360.0);
+	double lunarST = fmod((357.009 + 102.937) + (15 * (utc)) - FTimePlugin::Get().GetSingletonActor(this)->Longitude, 360.0);
 	double lunarHRA = lunarST - lunarRA;
 
-	double lat = (double)FTimePlugin::Get().TimeManagerActor->Latitude;
+	double lat = (double)FTimePlugin::Get().GetSingletonActor(this)->Latitude;
 	double lunarAA = ASinD((SinD(lat) * SinD(lunarDec)) + (CosD(lat) * CosD(lunarDec) * CosD(lunarHRA)));
 	double lunarAz = ATan2D(SinD(lunarHRA), ((CosD(lunarHRA) * SinD(lat)) - (TanD(lunarDec) * CosD(lat))));
 
@@ -219,21 +143,33 @@ FRotator ASkyManager::CalculateMoonAngle()
 	LunarAltAngle = (float)lunarAA;
 	LunarAzimuth = (float)lunarAz;
 
+	MoonRotation = FRotator(LunarAltAngle, LunarAzimuth, 0);
+}
 
-	return FRotator(LunarAltAngle, LunarAzimuth, 0);
-    }
-
-
-float ASkyManager::CalculateMoonPhase()
-    {
+void ASkyManager::CalculateMoonPhase()
+{
+	if (bFreezeSky)
+	{
+		return;
+	}
 	// Last time Lunar year start = solar year start:
-	double elapsed = FTimePlugin::Get().TimeManagerActor->InternalTime.GetJulianDay() - JD1900;
+	double elapsed = FTimePlugin::Get().GetSingletonActor(this)->InternalTime.GetJulianDay() - JD1900;
 
 	double cycles = elapsed / 29.530588853;
 	int32 count = FPlatformMath::FloorToInt(cycles);
 	cycles -= count;
-	return cycles;
-    }
+	MoonPhase = cycles;
+}
+
+void ASkyManager::UpdateSky()
+{
+	if (bAutoUpdate)
+	{
+		CalculateSunAngle();
+		CalculateMoonAngle();
+		CalculateMoonPhase();
+	}
+}
 
 
 
@@ -242,7 +178,7 @@ float ASkyManager::CalculateMoonPhase()
 /* ------------------------------------------------------- */
 
 
-// FRotator ATimeManager::CalculateMoonAngle()
+// FRotator ASkyManager::CalculateMoonAngle()
 // {
 // 	double lct = (InternalTime + SpanUTC).GetTimeOfDay().GetTotalHours();
 // 	double elapsedDays = InternalTime.GetJulianDay() - JD2000;  // T
@@ -357,7 +293,7 @@ float ASkyManager::CalculateMoonPhase()
 
 
 
-// FRotator ATimeManager::CalculateMoonAngle()
+// FRotator ASkyManager::CalculateMoonAngle()
 // {
 // 	double lct = InternalTime.GetTimeOfDay().GetTotalMinutes();
 // 	double elapsed = InternalTime.GetJulianDay() + (lct / 1440) - JD2000; // -0.5) -1;
@@ -429,7 +365,7 @@ float ASkyManager::CalculateMoonPhase()
 // }
 
 
-// FRotator ATimeManager::CalculateMoonAngle()
+// FRotator ASkyManager::CalculateMoonAngle()
 // {
 // 	ElapsedJD1900 = (InternalTime.GetJulianDay() - JD1900) / 36525;
 // 	double actualEcObl = EcObliquity - (0.0130125 * ElapsedJD1900) - (0.00000164 * pow(ElapsedJD1900, 2)) - (0.000000503 * pow(ElapsedJD1900, 3));
@@ -498,7 +434,7 @@ float ASkyManager::CalculateMoonPhase()
 
 // UN-Modified Original
 
-// 	FRotator ATimeManager::CalculateMoonAngle()
+// 	FRotator ASkyManager::CalculateMoonAngle()
 // 	{
 // 		double lct = InternalTime.GetTimeOfDay().GetTotalMinutes();
 // 		double elapsed = ((InternalTime.GetJulianDay() - 1) + (lct / 1440)) - (JD2000 - 0.5);
